@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام الجداول الذكي</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; margin: 0; padding: 10px; text-align: center; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
+        #reader { width: 100%; max-width: 400px; margin: 0 auto 20px; border-radius: 10px; border: 2px solid var(--primary) !important; }
+        .tabs { display: flex; justify-content: space-around; margin-bottom: 20px; border-bottom: 2px solid #eee; }
+        .tab { padding: 10px; cursor: pointer; font-weight: bold; color: #7f8c8d; }
+        .tab.active { color: var(--accent); border-bottom: 3px solid var(--accent); }
+        .config-box { background: #eef2f3; padding: 15px; border-radius: 10px; margin-bottom: 20px; text-align: right; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+        th, td { border: 1px solid #bdc3c7; padding: 8px; text-align: center; }
+        th { background: var(--primary); color: white; }
+        .present { background: #dff0d8 !important; color: #3c763d; font-weight: bold; }
+        .btn { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 5px; color: white; }
+        .btn-print { background: var(--accent); }
+        .btn-save { background: var(--success); }
+        @media print { .no-print { display: none; } .container { width: 100%; box-shadow: none; } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 class="no-print">نظام تصميم جداول الحضور 📊</h2>
+
+    <div class="tabs no-print">
+        <div class="tab active" onclick="showSection('scan')">المسح (Scanner)</div>
+        <div class="tab" onclick="showSection('design')">تصميم الجدول والإدارة</div>
+    </div>
+
+    <div id="scan-section">
+        <div id="reader" class="no-print"></div>
+        <div id="status" class="no-print" style="font-weight: bold; margin-bottom: 10px;">جاهز للمسح...</div>
+    </div>
+
+    <div id="design-section" style="display:none;" class="no-print">
+        <div class="config-box">
+            <h4>1. تحديد أيام الخدمة في الأسبوع:</h4>
+            <label><input type="checkbox" class="day-check" value="6"> السبت</label>
+            <label><input type="checkbox" class="day-check" value="1"> الاثنين</label>
+            <label><input type="checkbox" class="day-check" value="4"> الخميس</label>
+            <p style="font-size: 11px; color: #666;">* سيتم إنشاء أعمدة لهذه الأيام فقط في الشهر الحالي.</p>
+            
+            <h4>2. إضافة اسم خادم جديد:</h4>
+            <input type="text" id="nameInput" placeholder="اسم الخادم...">
+            <button class="btn btn-save" onclick="addNewName()">إضافة</button>
+        </div>
+    </div>
+
+    <div id="table-container">
+        <h3 id="tableTitle">جدول حضور شهر</h3>
+        <table id="mainTable">
+            <thead>
+                <tr id="headerRow">
+                    <th>اسم الخادم</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+
+    <div class="no-print" style="margin-top: 20px;">
+        <button class="btn btn-print" onclick="window.print()">طباعة الجدول الحالي 📄</button>
+        <button class="btn" style="background: #95a5a6;" onclick="resetAttendance()">تصفير الشهر 🔄</button>
+    </div>
+</div>
+
+<script>
+    let names = JSON.parse(localStorage.getItem('names_list')) || [
+        "أبانوب شنوده", "أبانوب مجدي", "إبرام رزق", "تادرس ياسر", "مينا سمير" // البقية تضاف يدوياً
+    ];
+    let attendanceData = JSON.parse(localStorage.getItem('att_data')) || {}; 
+    let selectedDays = JSON.parse(localStorage.getItem('selected_days')) || [6, 1, 4]; // السبت، الاثنين، الخميس
+
+    function initTable() {
+        const headerRow = document.getElementById('headerRow');
+        const tbody = document.getElementById('tableBody');
+        const now = new Date();
+        const month = now.getMonth();
+        const year = now.getFullYear();
+        document.getElementById('tableTitle').innerText = `جدول حضور شهر ${month + 1} - ${year}`;
+
+        // إنشاء الأعمدة بناءً على الأيام المختارة
+        headerRow.innerHTML = '<th>اسم الخادم</th>';
+        let daysInMonth = new Date(year, month + 1, 0).getDate();
+        let serviceDates = [];
+
+        for (let i = 1; i <= daysInMonth; i++) {
+            let d = new Date(year, month, i);
+            if (selectedDays.includes(d.getDay())) {
+                headerRow.innerHTML += `<th>${i}/${month + 1}</th>`;
+                serviceDates.push(`${i}/${month + 1}/${year}`);
+            }
+        }
+
+        // إنشاء الصفوف
+        tbody.innerHTML = "";
+        names.sort().forEach(name => {
+            let row = `<tr><td style="text-align:right; font-weight:bold;">${name}</td>`;
+            serviceDates.forEach(date => {
+                let isPresent = attendanceData[date] && attendanceData[date].includes(name);
+                row += `<td class="${isPresent ? 'present' : ''}">${isPresent ? 'حاضر' : ''}</td>`;
+            });
+            row += "</tr>";
+            tbody.innerHTML += row;
+        });
+    }
+
+    function onScanSuccess(decodedText) {
+        const now = new Date();
+        const dateKey = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+        
+        if (!names.includes(decodedText.trim())) {
+            alert("هذا الاسم غير مسجل في القائمة!"); return;
+        }
+
+        if (!attendanceData[dateKey]) attendanceData[dateKey] = [];
+        if (!attendanceData[dateKey].includes(decodedText)) {
+            attendanceData[dateKey].push(decodedText);
+            localStorage.setItem('att_data', JSON.stringify(attendanceData));
+            document.getElementById('status').innerText = "تم تسجيل: " + decodedText;
+            initTable();
+            navigator.vibrate(200);
+        } else {
+            document.getElementById('status').innerText = "مسجل مسبقاً: " + decodedText;
+        }
+    }
+
+    function addNewName() {
+        const val = document.getElementById('nameInput').value.trim();
+        if (val && !names.includes(val)) {
+            names.push(val);
+            localStorage.setItem('names_list', JSON.stringify(names));
+            initTable();
+            document.getElementById('nameInput').value = "";
+        }
+    }
+
+    // تحديث الأيام المختارة
+    document.querySelectorAll('.day-check').forEach(ch => {
+        ch.checked = selectedDays.includes(parseInt(ch.value));
+        ch.onchange = () => {
+            selectedDays = Array.from(document.querySelectorAll('.day-check:checked')).map(c => parseInt(c.value));
+            localStorage.setItem('selected_days', JSON.stringify(selectedDays));
+            initTable();
+        };
+    });
+
+    function showSection(sec) {
+        document.getElementById('scan-section').style.display = sec === 'scan' ? 'block' : 'none';
+        document.getElementById('design-section').style.display = sec === 'design' ? 'block' : 'none';
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+    }
+
+    function resetAttendance() { if(confirm("سيتم مسح غياب الشهر بالكامل، هل أنت متأكد؟")) { attendanceData = {}; localStorage.setItem('att_data', "{}"); initTable(); } }
+
+    let html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 15, qrbox: 250 });
+    html5QrcodeScanner.render(onScanSuccess);
+    initTable();
+</script>
+
+</body>
+</html>
